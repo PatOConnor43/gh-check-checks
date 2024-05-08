@@ -1,7 +1,40 @@
 #!/usr/bin/env bash
 set -e
 
-echo "Hello gh-check-checks!"
+stat .git &> /dev/null
+if [[ $? -ne 0 ]]; then
+  echo "Not in a GitHub repository" >&2
+  exit 1
+fi
+
+repo=`gh repo view --json url --jq '.url'`
+if [[ ! $repo == https://github.com* ]] ; then
+  echo "Not in a GitHub repository" >&2
+  exit 1
+fi
+
+repo=`echo $repo | sed 's@https://github.com/@@'`
+commit=`git rev-parse HEAD`
+
+exec gh api \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  /repos/$repo/commits/$commit/check-runs --jq '
+  {
+      successCount: [.check_runs[] |
+          select(.conclusion == "success"),
+          select(.conclusion == "skipped"),
+          select(.conclusion == "neutral")] | length,
+      failedCount:  [.check_runs[] |
+          select(.conclusion == "failure"),
+          select(.conclusion == "action_required"),
+          select(.conclusion == "cancelled"),
+          select(.conclusion == "timed_out"),
+          select(.conclusion == "stale")] | length,
+      runningCount:  [.check_runs[] | select(.status != "completed")] | length,
+      commit: "'''$commit'''",
+      repository: "'''$repo'''",
+  }'
 
 # Snippets to help get started:
 
